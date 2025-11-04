@@ -1,13 +1,29 @@
 const canvas = document.getElementById("game");
-const gl = canvas.getContext("webgl");
+const ctx = canvas.getContext("2d");
 
 canvas.width = innerWidth;
 canvas.height = innerHeight;
 
-if (!gl) {
-  alert("WebGL not supported");
+const TILE_SIZE = 40;
+const world = [
+  [1, 1, 1, 1],
+  [1, 0, 0, 1],
+  [1, 0, 2, 1],
+  [1, 1, 1, 1],
+];
+
+function drawBlock(x, y, type) {
+  if (type === 0) return; // air
+  ctx.fillStyle = type === 1 ? "#8B4513" : "#228B22"; // brown for dirt, green for grass
+  ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
 }
 
-// Clear screen
-gl.clearColor(0.53, 0.81, 0.92, 1.0); // sky color
-gl.clear(gl.COLOR_BUFFER_BIT);
+function drawWorld() {
+  for (let y = 0; y < world.length; y++) {
+    for (let x = 0; x < world[y].length; x++) {
+      drawBlock(x, y, world[y][x]);
+    }
+  }
+}
+
+drawWorld();
