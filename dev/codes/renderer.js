@@ -27,3 +27,22 @@ function drawWorld() {
 }
 
 drawWorld();
+
+let player = { x: 2, y: 2 };
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "ArrowUp") player.y--;
+  if (e.key === "ArrowDown") player.y++;
+  if (e.key === "ArrowLeft") player.x--;
+  if (e.key === "ArrowRight") player.x++;
+  render();
+});
+
+function render() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  drawWorld();
+  ctx.fillStyle = "#FFD700";
+  ctx.fillRect(player.x * TILE_SIZE, player.y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+}
+
+render();
