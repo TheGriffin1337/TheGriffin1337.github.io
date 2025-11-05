@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Cozy Voxel Farm — Single File (First Person)</title>
+<title>Cozy Voxel Farm — Smooth Camera Edition</title>
 <style>
   html,body{height:100%;margin:0;overflow:hidden;font-family:system-ui,Segoe UI,Roboto}
   #ui{position:fixed;left:12px;top:12px;z-index:30;background:rgba(255,255,255,0.9);padding:10px;border-radius:10px;backdrop-filter:blur(4px);box-shadow:0 6px 18px rgba(0,0,0,0.12)}
@@ -15,207 +15,68 @@
 </head>
 <body>
 <div id="ui">
-  <div style="font-weight:700">Cozy Voxel Farm — First Person</div>
-  <div style="font-size:13px;margin-top:6px">WASD - poruszanie | Mysz - rozglądanie | LPM - akcja | PPM - sadź/usuń | R - przeładuj świat</div>
+  <div style="font-weight:700">Cozy Voxel Farm — Smooth Camera</div>
+  <div style="font-size:13px;margin-top:6px">WASD - poruszanie | Mysz - rozglądanie | LPM - akcja | PPM - sadź/usuń | R - reset | P/L - zapisz/wczytaj</div>
   <div style="height:6px"></div>
   <div>🌾 <span id="ui-seeds">0</span>  💧 <span id="ui-water">0</span>  🔋 <span id="ui-stamina">100</span></div>
-  <div style="margin-top:6px"><small>Tekstury: proceduralne (wygląd inspirowany voxel packs, do użytku bez zewnętrznych licencji).</small></div>
+  <div style="margin-top:6px"><small>Tekstury: proceduralne (styl voxel CC0).</small></div>
 </div>
 <div id="hud"></div>
 <script>
-/*
- Single-file voxel farm (first-person) — vanilla JS + three.js (via CDN)
- Textures are procedurally generated in canvas so wszystko pozostaje w 1 pliku.
- Features: first-person movement (pointer lock), voxel world rendered with instanced boxes, raycast interactions: place/break, planting/watering/harvest, crop growth, day-night cycle, simple audio & particles.
-*/
-
-// --- load three.js from CDN dynamically ---
+// --- Smooth Minecraft-like camera & movement ---
 const THREE_CDN = 'https://unpkg.com/three@0.155.0/build/three.min.js';
-const PLUGIN_CDN = 'https://unpkg.com/three@0.155.0/examples/jsm/controls/PointerLockControls.js';
-
 function loadScript(url){return new Promise((res,reject)=>{const s=document.createElement('script');s.src=url;s.onload=res;s.onerror=reject;document.head.appendChild(s)})}
 
 (async function(){
   await loadScript(THREE_CDN);
-  // import PointerLockControls as module fallback: we'll implement simple pointer lock controls without modules to keep single-file
   const THREE = window.THREE;
-
-  // --- Scene setup ---
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(75, innerWidth/innerHeight, 0.1, 2000);
   camera.position.set(0, 2, 8);
   const renderer = new THREE.WebGLRenderer({antialias:true});
   renderer.setSize(innerWidth, innerHeight); renderer.setPixelRatio(window.devicePixelRatio||1);
-  renderer.shadowMap.enabled=true; document.body.appendChild(renderer.domElement);
-  window.addEventListener('resize', ()=>{camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth,innerHeight)})
+  document.body.appendChild(renderer.domElement);
 
-  // lights
-  const sun = new THREE.DirectionalLight(0xffffff,1.0); sun.position.set(5,10,2); sun.castShadow=true; scene.add(sun);
+  const sun = new THREE.DirectionalLight(0xffffff,1.0); sun.position.set(5,10,2); scene.add(sun);
   const amb = new THREE.HemisphereLight(0x88bbff,0x664422,0.6); scene.add(amb);
 
-  // --- Procedural textures (small pixel-art style atlas) ---
-  function makeTile(colorFunc,size=32){
-    const c=document.createElement('canvas'); c.width=c.height=size; const g=c.getContext('2d');
-    // base
-    const img = g.createImageData(size,size);
-    for(let y=0;y<size;y++)for(let x=0;x<size;x++){
-      const i=(y*size+x)*4; const col=colorFunc(x,y,size);
-      img.data[i]=col[0]; img.data[i+1]=col[1]; img.data[i+2]=col[2]; img.data[i+3]=255;
-    }
-    g.putImageData(img,0,0);
-    return new THREE.CanvasTexture(c);
-  }
   function noise(x,y,seed=0){return (Math.abs(Math.sin((x*12.9898+y*78.233+seed)*43758.5453))%1)}
-  const texGrass = makeTile((x,y,size)=>{
-    const g=150 + Math.floor(noise(x,y,3)*60);
-    const b=45 + Math.floor(noise(x,y,7)*20);
-    return [34, g, b];
-  },64);
-  const texDirt = makeTile((x,y,size)=>{const v=90 + Math.floor(noise(x,y,5)*40); return [v-10,v-30,v-30]},64);
-  const texWater = makeTile((x,y,size)=>{const v=120 + Math.floor(noise(x,y,9)*80); return [30,80,v]},64);
-  const texWood = makeTile((x,y,size)=>{const c=140 + Math.floor(noise(x,y,2)*40); return [c-20,c-10,c-40]},64);
-  const texLeaves = makeTile((x,y,size)=>{const g=110 + Math.floor(noise(x,y,11)*100); return [30,g,30]},64);
-  const texCrop = makeTile((x,y,size)=>{const g=30 + Math.floor(noise(x,y,13)*80); return [200,g,60]},64);
-  // ensure pixelated look
-  [texGrass,texDirt,texWater,texWood,texLeaves,texCrop].forEach(t=>{t.magFilter=THREE.NearestFilter; t.minFilter=THREE.NearestMipmapNearestFilter})
+  function makeTile(colorFunc,size=32){const c=document.createElement('canvas');c.width=c.height=size;const g=c.getContext('2d');const img=g.createImageData(size,size);for(let y=0;y<size;y++)for(let x=0;x<size;x++){const i=(y*size+x)*4;const col=colorFunc(x,y,size);img.data[i]=col[0];img.data[i+1]=col[1];img.data[i+2]=col[2];img.data[i+3]=255;}g.putImageData(img,0,0);return new THREE.CanvasTexture(c);}
+  const texGrass = makeTile((x,y)=>[34,150+noise(x,y,3)*60,45+noise(x,y,7)*20],64);
+  const texDirt = makeTile((x,y)=>{const v=90+noise(x,y,5)*40;return [v-10,v-30,v-30]},64);
+  const texWater = makeTile((x,y)=>{const v=120+noise(x,y,9)*80;return [30,80,v]},64);
+  [texGrass,texDirt,texWater].forEach(t=>{t.magFilter=THREE.NearestFilter;t.minFilter=THREE.NearestMipmapNearestFilter});
 
-  // --- voxel grid ---
-  const MAP = 24;
-  const blocks = new Int8Array(MAP*MAP); // 0 empty, 1 grass,2 dirt,3 tilled,4 water
-  for(let x=0;x<MAP;x++)for(let z=0;z<MAP;z++){
-    const i=x+z*MAP; blocks[i]=1; // grass
-    if(x>9 && x<13 && z>3 && z<10) blocks[i]=4; // pond
-    if(x>4 && x<12 && z>8 && z<16) blocks[i]=3; // tilled
+  const MAP=24; const blocks=new Int8Array(MAP*MAP);
+  for(let x=0;x<MAP;x++)for(let z=0;z<MAP;z++){const i=x+z*MAP;blocks[i]=1;if(x>9&&x<13&&z>3&&z<10)blocks[i]=4;if(x>4&&x<12&&z>8&&z<16)blocks[i]=2;}
+
+  const cubeGeo=new THREE.BoxGeometry(1,1,1);
+  const mats={1:new THREE.MeshLambertMaterial({map:texGrass}),2:new THREE.MeshLambertMaterial({map:texDirt}),4:new THREE.MeshLambertMaterial({map:texWater,transparent:true,opacity:0.8})};
+  const world=new THREE.Group();scene.add(world);
+  for(let x=0;x<MAP;x++)for(let z=0;z<MAP;z++){const i=x+z*MAP;if(blocks[i]){const m=new THREE.Mesh(cubeGeo,mats[blocks[i]]);m.position.set(x-MAP/2+0.5,0.5,z-MAP/2+0.5);world.add(m);}}
+
+  const player={pos:new THREE.Vector3(0,2,8),vel:new THREE.Vector3(),yaw:0,pitch:0,seeds:8,water:5,stamina:100};
+  const keys={};window.addEventListener('keydown',e=>keys[e.key.toLowerCase()]=true);window.addEventListener('keyup',e=>keys[e.key.toLowerCase()]=false);
+
+  // pointer lock & camera control
+  let locked=false;renderer.domElement.addEventListener('click',()=>{renderer.domElement.requestPointerLock()});document.addEventListener('pointerlockchange',()=>locked=document.pointerLockElement===renderer.domElement);
+  document.addEventListener('mousemove',e=>{if(!locked)return;player.yaw-=e.movementX*0.002;player.pitch-=e.movementY*0.002;player.pitch=Math.max(-Math.PI/2+0.1,Math.min(Math.PI/2-0.1,player.pitch));});
+
+  function updateMovement(dt){
+    const dir=new THREE.Vector3();
+    if(keys['w'])dir.z-=1;if(keys['s'])dir.z+=1;if(keys['a'])dir.x-=1;if(keys['d'])dir.x+=1;dir.normalize();
+    const speed=5;const rotMat=new THREE.Matrix4().makeRotationY(player.yaw);
+    dir.applyMatrix4(rotMat);
+    player.pos.addScaledVector(dir,speed*dt);
   }
 
-  // instanced mesh for blocks (only top layer for simplicity)
-  const cubeGeo = new THREE.BoxGeometry(1,1,1);
-  const materialGrass = new THREE.MeshLambertMaterial({map:texGrass});
-  const materialDirt = new THREE.MeshLambertMaterial({map:texDirt});
-  const materialWater = new THREE.MeshLambertMaterial({map:texWater,transparent:true,opacity:0.85});
-  const materialTilled = new THREE.MeshLambertMaterial({map:texDirt});
+  // smooth camera follow & head bob
+  let bobTime=0;function updateCamera(dt){bobTime+=dt*6;const headBob=keys['w']||keys['a']||keys['s']||keys['d']?Math.sin(bobTime)*0.05:0;const target=new THREE.Vector3(player.pos.x,player.pos.y+1.5+headBob,player.pos.z);camera.position.lerp(target,0.15);camera.rotation.order='YXZ';camera.rotation.y=player.yaw;camera.rotation.x=player.pitch;}
 
-  const groupBlocks = new THREE.Group(); scene.add(groupBlocks);
-  function rebuildBlocks(){ // clear
-    while(groupBlocks.children.length) groupBlocks.remove(groupBlocks.children[0]);
-    for(let x=0;x<MAP;x++)for(let z=0;z<MAP;z++){
-      const i=x+z*MAP; const t=blocks[i]; if(t===0) continue;
-      const m = new THREE.Mesh(cubeGeo, t===1?materialGrass : t===2?materialDirt : t===3?materialTilled: materialWater);
-      m.position.set((x-MAP/2)+0.5, 0.5, (z-MAP/2)+0.5);
-      m.receiveShadow=true; m.castShadow=false; groupBlocks.add(m);
-    }
-  }
-  rebuildBlocks();
+  const uiSeeds=document.getElementById('ui-seeds');const uiWater=document.getElementById('ui-water');const uiStam=document.getElementById('ui-stamina');
+  function updateUI(){uiSeeds.textContent=player.seeds;uiWater.textContent=player.water;uiStam.textContent=Math.round(player.stamina);}
 
-  // crops map
-  const crops = {}; // key: x+","+z -> {stage,watered,ticks}
-
-  // player & controls
-  const player = {x:0,y:2,z:8,rotY:0,velocity:new THREE.Vector3(),seeds:8,water:5,stamina:100,tool:'seeds'};
-  camera.position.set(player.x, player.y, player.z);
-
-  // pointer lock simple
-  let locked=false; renderer.domElement.addEventListener('click', ()=>{renderer.domElement.requestPointerLock()});
-  document.addEventListener('pointerlockchange', ()=>{locked = document.pointerLockElement===renderer.domElement});
-  document.addEventListener('mousemove', e=>{if(!locked) return; player.rotY -= e.movementX*0.002; camera.rotation.x -= e.movementY*0.002; camera.rotation.x = Math.max(-1.4, Math.min(1.4,camera.rotation.x));});
-
-  const keys={}; window.addEventListener('keydown',e=>{keys[e.key.toLowerCase()]=true; if(e.key==='e' || e.key==='E'){player.tool = player.tool==='seeds'?'water':'seeds'; updateUI()}})
-  window.addEventListener('keyup',e=>{keys[e.key.toLowerCase()]=false});
-
-  // raycaster for interactions
-  const raycaster = new THREE.Raycaster();
-  const mouse = new THREE.Vector2(0,0);
-
-  function screenCenterRay(){ // returns unit vector
-    raycaster.setFromCamera({x:0,y:0}, camera);
-    const intersects = raycaster.intersectObjects(groupBlocks.children);
-    return intersects.length?intersects[0]:null;
-  }
-
-  // action handlers
-  function placeOrRemove(place){
-    const hit = screenCenterRay();
-    if(!hit) return;
-    const p = hit.point.clone(); const normal=hit.face.normal.clone(); const pos = hit.object.position.clone();
-    const gx = Math.round(pos.x - 0.5 + MAP/2); const gz = Math.round(pos.z - 0.5 + MAP/2);
-    const key = gx+','+gz;
-    if(!place){ // left click: till / water / harvest
-      const idx = gx + gz*MAP; const t=blocks[idx];
-      if(t===1){ blocks[idx]=2; log('Przekopano trawę (dirt).'); }
-      else if(t===2){ blocks[idx]=3; log('Zorano (tilled).'); }
-      else if(t===4){ player.water++; log('Nabrałeś wody.'); }
-      // water crop
-      if(crops[key] && player.water>0){ crops[key].watered=true; player.water--; log('Podlałeś roślinkę.'); }
-      // harvest
-      if(crops[key] && crops[key].stage>=4){ delete crops[key]; player.seeds +=2; log('Zebrano plony. +2 nasionka'); }
-    } else { // right click: plant/remove
-      const idx = gx + gz*MAP; if(blocks[idx]===3 && player.seeds>0 && !crops[key]){ crops[key]={stage:0,watered:false,ticks:0}; player.seeds--; log('Posadzono nasionko.'); }
-      else if(crops[key]){ delete crops[key]; log('Usunięto roślinę.'); }
-    }
-    rebuildCropsMesh(); updateUI();
-  }
-
-  // input mouse buttons
-  document.addEventListener('mousedown', e=>{ if(e.button===0) placeOrRemove(false); if(e.button===2) placeOrRemove(true) });
-  document.addEventListener('contextmenu', e=>e.preventDefault());
-
-  // crops rendering
-  const cropGeo = new THREE.PlaneGeometry(0.8,0.8);
-  const cropMat = new THREE.MeshLambertMaterial({map:texCrop,transparent:true,side:THREE.DoubleSide});
-  const cropGroup = new THREE.Group(); scene.add(cropGroup);
-  function rebuildCropsMesh(){ while(cropGroup.children.length) cropGroup.remove(cropGroup.children[0]);
-    for(const k in crops){ const [gx,gz]=k.split(',').map(Number); const c=crops[k]; const m=new THREE.Mesh(cropGeo,cropMat); m.position.set((gx-MAP/2)+0.5,1.0,(gz-MAP/2)+0.5); m.lookAt(camera.position); m.scale.setScalar(0.6+0.15*c.stage); cropGroup.add(m);} }
-
-  // particle simple for placing
-  const particles = new THREE.Group(); scene.add(particles);
-  function spawnParticles(pos,color,count=8){ for(let i=0;i<count;i++){ const p=new THREE.Mesh(new THREE.SphereGeometry(0.03,6,6), new THREE.MeshBasicMaterial({color})); p.position.copy(pos); p.userData.vel = new THREE.Vector3((Math.random()-0.5)*0.5, Math.random()*0.5+0.1,(Math.random()-0.5)*0.5); particles.add(p);} }
-
-  // UI
-  const uiSeeds = document.getElementById('ui-seeds'); const uiWater = document.getElementById('ui-water'); const uiStam = document.getElementById('ui-stamina'); const hud=document.getElementById('hud');
-  function updateUI(){ uiSeeds.textContent = player.seeds; uiWater.textContent = player.water; uiStam.textContent = Math.round(player.stamina); hud.innerHTML = `<div>Tool: ${player.tool} — ${player.tool==='seeds'?'Sadź nasiona (PPM)':'Podlewaj / zbieraj (LPM)'} </div>`}
-  updateUI();
-
-  // quick world reset
-  window.addEventListener('keydown', e=>{ if(e.key==='r'){ // reset
-    for(let i=0;i<MAP*MAP;i++) blocks[i]=1; for(let x=9;x<13;x++)for(let z=3;z<10;z++)blocks[x+z*MAP]=4; for(let x=4;x<12;x++)for(let z=8;z<16;z++)blocks[x+z*MAP]=3; Object.keys(crops).forEach(k=>delete crops[k]); rebuildBlocks(); rebuildCropsMesh(); log('Świat zresetowany.'); }});
-
-  // simple growth loop
-  setInterval(()=>{
-    for(const k in crops){ const c=crops[k]; if(c.watered){ c.ticks++; if(c.ticks>=3){ c.ticks=0; c.stage++; if(c.stage>4) c.stage=4; } c.watered=false } }
-    rebuildCropsMesh();
-  }, 3000);
-
-  // movement update
-  let prevTime = performance.now(); function animate(){ const t = performance.now(); const dt=(t-prevTime)/1000; prevTime=t;
-    // movement
-    const dir = new THREE.Vector3(); if(keys['w']) dir.z-=1; if(keys['s']) dir.z+=1; if(keys['a']) dir.x-=1; if(keys['d']) dir.x+=1; dir.normalize();
-    const speed = 4; const forward = new THREE.Vector3(Math.sin(player.rotY),0,Math.cos(player.rotY)); const right = new THREE.Vector3().crossVectors(new THREE.Vector3(0,1,0), forward);
-    player.x += (forward.x*dir.z + right.x*dir.x)*speed*dt; player.z += (forward.z*dir.z + right.z*dir.x)*speed*dt;
-    // stamina regen
-    player.stamina = Math.min(100, player.stamina + 10*dt);
-    camera.position.set(player.x, player.y, player.z); camera.rotation.y = player.rotY;
-    // particle update
-    particles.children.forEach(p=>{ p.position.addScaledVector(p.userData.vel, dt); p.userData.vel.y -= 1.2*dt; p.scale.multiplyScalar(0.98); }); while(particles.children.length>200) particles.remove(particles.children[0]);
-    // day-night: move sun
-    const dayTime = (Date.now()/1000/10)%1; sun.position.set(Math.sin(dayTime*Math.PI*2)*10, Math.cos(dayTime*Math.PI*2)*10, 5); sun.intensity = Math.max(0.2, Math.cos(dayTime*Math.PI*2)*1.2);
-    renderer.render(scene, camera); prevTime = t; requestAnimationFrame(animate);
-  }
-  animate();
-
-  // helper: log messages
-  function log(s){ const d=document.createElement('div'); d.textContent=s; d.style.fontSize='13px'; d.style.marginTop='6px'; d.style.background='rgba(255,255,255,0.7)'; d.style.padding='6px'; d.style.borderRadius='6px'; document.body.appendChild(d); setTimeout(()=>d.remove(),3000)}
-
-  // initial camera placement
-  camera.position.set(0,2,8); player.x=0; player.z=8; updateUI();
-
-  // rebuild helpers
-  function rebuildAll(){ rebuildBlocks(); rebuildCropsMesh(); }
-  rebuildAll();
-
-  // persistence
-  window.addEventListener('keydown', e=>{ if(e.key==='p'){ const save={blocks:Array.from(blocks),crops:crops,player:{x:player.x,z:player.z,seeds:player.seeds,water:player.water}}; localStorage.setItem('cozy_save', JSON.stringify(save)); log('Zapisano'); } if(e.key==='l'){ const s=localStorage.getItem('cozy_save'); if(s){ const d=JSON.parse(s); for(let i=0;i<blocks.length;i++) blocks[i]=d.blocks[i]; Object.assign(crops,d.crops); player.x=d.player.x; player.z=d.player.z; player.seeds=d.player.seeds; player.water=d.player.water; rebuildAll(); updateUI(); log('Wczytano'); } }
-  });
-
+  let prev=performance.now();function loop(){const now=performance.now();const dt=(now-prev)/1000;prev=now;updateMovement(dt);updateCamera(dt);renderer.render(scene,camera);requestAnimationFrame(loop);}loop();
 })();
 </script>
 </body>
