@@ -3,80 +3,159 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Cozy Voxel Farm — Smooth Camera Edition</title>
+<title>Cozy Voxel Farm — Billboard Crops (Single File)</title>
 <style>
   html,body{height:100%;margin:0;overflow:hidden;font-family:system-ui,Segoe UI,Roboto}
-  #ui{position:fixed;left:12px;top:12px;z-index:30;background:rgba(255,255,255,0.9);padding:10px;border-radius:10px;backdrop-filter:blur(4px);box-shadow:0 6px 18px rgba(0,0,0,0.12)}
+  #ui{position:fixed;left:12px;top:12px;z-index:40;background:rgba(255,255,255,0.92);padding:10px;border-radius:10px;backdrop-filter:blur(4px);box-shadow:0 6px 18px rgba(0,0,0,0.12)}
   #ui small{color:#555}
-  #hud{position:fixed;right:12px;top:12px;z-index:30;color:#111;background:rgba(255,255,255,0.85);padding:10px;border-radius:10px}
+  #hud{position:fixed;right:12px;top:12px;z-index:40;color:#111;background:rgba(255,255,255,0.9);padding:10px;border-radius:10px}
   canvas{display:block}
-  button{padding:6px 10px;border-radius:6px;border:1px solid #ccc;background:#fff}
+  .msg{position:fixed;left:50%;transform:translateX(-50%);bottom:18px;background:rgba(0,0,0,0.6);color:white;padding:8px 12px;border-radius:8px;font-family:monospace}
 </style>
 </head>
 <body>
 <div id="ui">
-  <div style="font-weight:700">Cozy Voxel Farm — Smooth Camera</div>
-  <div style="font-size:13px;margin-top:6px">WASD - poruszanie | Mysz - rozglądanie | LPM - akcja | PPM - sadź/usuń | R - reset | P/L - zapisz/wczytaj</div>
+  <div style="font-weight:700">Cozy Voxel Farm — Billboard Crops</div>
+  <div style="font-size:13px;margin-top:6px">WASD - ruch | Klik w okno - pointer lock | Mysz - rozglądanie | LPM - podlej/zbierz | PPM - sadź/usuń</div>
   <div style="height:6px"></div>
   <div>🌾 <span id="ui-seeds">0</span>  💧 <span id="ui-water">0</span>  🔋 <span id="ui-stamina">100</span></div>
-  <div style="margin-top:6px"><small>Tekstury: proceduralne (styl voxel CC0).</small></div>
+  <div style="margin-top:6px"><small>Rośliny jako billboardy 2D (sprite) — proste, wydajne i przyjemne.</small></div>
 </div>
 <div id="hud"></div>
+<div id="toast" class="msg" style="display:none"></div>
 <script>
-// --- Smooth Minecraft-like camera & movement ---
+// Single-file Cozy Voxel Farm — billboard crops, smooth camera, reach interactions
 const THREE_CDN = 'https://unpkg.com/three@0.155.0/build/three.min.js';
-function loadScript(url){return new Promise((res,reject)=>{const s=document.createElement('script');s.src=url;s.onload=res;s.onerror=reject;document.head.appendChild(s)})}
+function loadScript(url){return new Promise((r,rej)=>{const s=document.createElement('script');s.src=url;s.onload=r;s.onerror=rej;document.head.appendChild(s)})}
 
-(async function(){
-  await loadScript(THREE_CDN);
-  const THREE = window.THREE;
-  const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(75, innerWidth/innerHeight, 0.1, 2000);
-  camera.position.set(0, 2, 8);
-  const renderer = new THREE.WebGLRenderer({antialias:true});
-  renderer.setSize(innerWidth, innerHeight); renderer.setPixelRatio(window.devicePixelRatio||1);
-  document.body.appendChild(renderer.domElement);
+(async ()=>{
+  await loadScript(THREE_CDN); const THREE=window.THREE;
+  // renderer, scene, camera
+  const scene=new THREE.Scene();
+  const camera=new THREE.PerspectiveCamera(75,innerWidth/innerHeight,0.1,1000);
+  const renderer=new THREE.WebGLRenderer({antialias:true}); renderer.setSize(innerWidth,innerHeight); document.body.appendChild(renderer.domElement);
+  window.addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)});
 
-  const sun = new THREE.DirectionalLight(0xffffff,1.0); sun.position.set(5,10,2); scene.add(sun);
-  const amb = new THREE.HemisphereLight(0x88bbff,0x664422,0.6); scene.add(amb);
+  // lights
+  const sun=new THREE.DirectionalLight(0xffffff,1); sun.position.set(5,10,2); scene.add(sun);
+  const amb=new THREE.HemisphereLight(0x88bbff,0x664422,0.6); scene.add(amb);
 
-  function noise(x,y,seed=0){return (Math.abs(Math.sin((x*12.9898+y*78.233+seed)*43758.5453))%1)}
-  function makeTile(colorFunc,size=32){const c=document.createElement('canvas');c.width=c.height=size;const g=c.getContext('2d');const img=g.createImageData(size,size);for(let y=0;y<size;y++)for(let x=0;x<size;x++){const i=(y*size+x)*4;const col=colorFunc(x,y,size);img.data[i]=col[0];img.data[i+1]=col[1];img.data[i+2]=col[2];img.data[i+3]=255;}g.putImageData(img,0,0);return new THREE.CanvasTexture(c);}
-  const texGrass = makeTile((x,y)=>[34,150+noise(x,y,3)*60,45+noise(x,y,7)*20],64);
-  const texDirt = makeTile((x,y)=>{const v=90+noise(x,y,5)*40;return [v-10,v-30,v-30]},64);
-  const texWater = makeTile((x,y)=>{const v=120+noise(x,y,9)*80;return [30,80,v]},64);
-  [texGrass,texDirt,texWater].forEach(t=>{t.magFilter=THREE.NearestFilter;t.minFilter=THREE.NearestMipmapNearestFilter});
+  // --- textures (procedural pixel-like atlas) ---
+  function perlinHash(x,y){return Math.abs(Math.sin((x*12.9898+y*78.233)*43758.5453))%1}
+  function makeTexture(pix){const c=document.createElement('canvas');c.width=c.height=64;const g=c.getContext('2d');const id=g.createImageData(64,64);for(let y=0;y<64;y++)for(let x=0;x<64;x++){const i=(y*64+x)*4;const col=pix(x,y);id.data[i]=col[0];id.data[i+1]=col[1];id.data[i+2]=col[2];id.data[i+3]=255;}g.putImageData(id,0,0);const tex=new THREE.CanvasTexture(c);tex.magFilter=THREE.NearestFilter;tex.minFilter=THREE.NearestMipmapNearestFilter;return tex}
+  const texGrass=makeTexture((x,y)=>{const v=120+perlinHash(x,y)*60;return [30,v,40]});
+  const texDirt=makeTexture((x,y)=>{const v=80+perlinHash(x,y)*40;return [v-10,v-30,v-30]});
+  const texWater=makeTexture((x,y)=>{const v=120+perlinHash(x,y)*80;return [30,80,v]});
+  const texCrop=makeTexture((x,y)=>{const g=40+perlinHash(x,y)*140;return [200,g,60]});
 
-  const MAP=24; const blocks=new Int8Array(MAP*MAP);
-  for(let x=0;x<MAP;x++)for(let z=0;z<MAP;z++){const i=x+z*MAP;blocks[i]=1;if(x>9&&x<13&&z>3&&z<10)blocks[i]=4;if(x>4&&x<12&&z>8&&z<16)blocks[i]=2;}
+  // --- world grid ---
+  const MAP=24; const blocks=new Int8Array(MAP*MAP); // 0 empty,1 grass,2 tilled,3 water
+  for(let x=0;x<MAP;x++)for(let z=0;z<MAP;z++){const i=x+z*MAP;blocks[i]=1;if(x>9&&x<13&&z>3&&z<10)blocks[i]=3;if(x>4&&x<12&&z>8&&z<16)blocks[i]=2}
 
+  // build top-layer block meshes
   const cubeGeo=new THREE.BoxGeometry(1,1,1);
-  const mats={1:new THREE.MeshLambertMaterial({map:texGrass}),2:new THREE.MeshLambertMaterial({map:texDirt}),4:new THREE.MeshLambertMaterial({map:texWater,transparent:true,opacity:0.8})};
-  const world=new THREE.Group();scene.add(world);
-  for(let x=0;x<MAP;x++)for(let z=0;z<MAP;z++){const i=x+z*MAP;if(blocks[i]){const m=new THREE.Mesh(cubeGeo,mats[blocks[i]]);m.position.set(x-MAP/2+0.5,0.5,z-MAP/2+0.5);world.add(m);}}
+  const matGrass=new THREE.MeshLambertMaterial({map:texGrass});
+  const matDirt=new THREE.MeshLambertMaterial({map:texDirt});
+  const matWater=new THREE.MeshLambertMaterial({map:texWater,transparent:true,opacity:0.85});
+  const worldGroup=new THREE.Group(); scene.add(worldGroup);
+  function rebuildWorld(){worldGroup.clear(); for(let x=0;x<MAP;x++)for(let z=0;z<MAP;z++){const i=x+z*MAP;const t=blocks[i]; if(!t) continue; const mat = t===1?matGrass: t===2?matDirt: matWater; const m=new THREE.Mesh(cubeGeo,mat); m.position.set(x-MAP/2+0.5,0.5,z-MAP/2+0.5); m.receiveShadow=true; m.castShadow=false; worldGroup.add(m); }}
+  rebuildWorld();
 
-  const player={pos:new THREE.Vector3(0,2,8),vel:new THREE.Vector3(),yaw:0,pitch:0,seeds:8,water:5,stamina:100};
-  const keys={};window.addEventListener('keydown',e=>keys[e.key.toLowerCase()]=true);window.addEventListener('keyup',e=>keys[e.key.toLowerCase()]=false);
+  // crops as billboards (sprite-like using PlaneGeometry that always faces camera)
+  const crops = {}; // key -> {stage,watered,ticks}
+  const cropGeo=new THREE.PlaneGeometry(0.8,0.8);
+  const cropMat=new THREE.MeshLambertMaterial({map:texCrop,transparent:true,side:THREE.DoubleSide});
+  const cropGroup=new THREE.Group(); scene.add(cropGroup);
+  function rebuildCrops(){ cropGroup.clear(); for(const k in crops){const [gx,gz]=k.split(',').map(Number);const c=crops[k]; const m=new THREE.Mesh(cropGeo,cropMat); m.position.set(gx-MAP/2+0.5, 1.0 + c.stage*0.08, gz-MAP/2+0.5); m.scale.setScalar(0.6 + c.stage*0.12); m.userData.key=k; cropGroup.add(m);} }
 
-  // pointer lock & camera control
-  let locked=false;renderer.domElement.addEventListener('click',()=>{renderer.domElement.requestPointerLock()});document.addEventListener('pointerlockchange',()=>locked=document.pointerLockElement===renderer.domElement);
-  document.addEventListener('mousemove',e=>{if(!locked)return;player.yaw-=e.movementX*0.002;player.pitch-=e.movementY*0.002;player.pitch=Math.max(-Math.PI/2+0.1,Math.min(Math.PI/2-0.1,player.pitch));});
+  // player and controls
+  const player={pos:new THREE.Vector3(0,1.6,8),yaw:0,pitch:0,seeds:8,water:5,stamina:100};
+  camera.position.copy(player.pos);
+  const keys={}; window.addEventListener('keydown',e=>keys[e.key.toLowerCase()]=true); window.addEventListener('keyup',e=>keys[e.key.toLowerCase()]=false);
 
-  function updateMovement(dt){
-    const dir=new THREE.Vector3();
-    if(keys['w'])dir.z-=1;if(keys['s'])dir.z+=1;if(keys['a'])dir.x-=1;if(keys['d'])dir.x+=1;dir.normalize();
-    const speed=5;const rotMat=new THREE.Matrix4().makeRotationY(player.yaw);
-    dir.applyMatrix4(rotMat);
-    player.pos.addScaledVector(dir,speed*dt);
+  // pointer-lock controls
+  let locked=false; renderer.domElement.addEventListener('click',()=>{renderer.domElement.requestPointerLock()});
+  document.addEventListener('pointerlockchange',()=>{locked=document.pointerLockElement===renderer.domElement});
+  document.addEventListener('mousemove',e=>{if(!locked) return; player.yaw -= e.movementX*0.0025; player.pitch -= e.movementY*0.0025; player.pitch = Math.max(-1.4,Math.min(1.4,player.pitch));});
+
+  // head bobbing
+  let bob=0;
+
+  // raycasting (center of screen)
+  const raycaster = new THREE.Raycaster();
+  function getCenterHit(){ raycaster.setFromCamera({x:0,y:0},camera); const hits = raycaster.intersectObjects(worldGroup.children); return hits.length?hits[0]:null }
+
+  // interaction reach
+  const REACH = 3.2;
+  function inReach(point){return camera.position.distanceTo(point)<=REACH}
+
+  // interactions: left = use (water/harvest), right = plant/remove
+  document.addEventListener('mousedown', e=>{ if(e.button===0) useAction(); if(e.button===2) plantAction(); }); document.addEventListener('contextmenu',e=>e.preventDefault());
+
+  function toast(s){const t=document.getElementById('toast');t.textContent=s;t.style.display='block'; clearTimeout(t._to); t._to=setTimeout(()=>t.style.display='none',1400)}
+
+  function useAction(){ const hit=getCenterHit(); if(!hit) return; const obj=hit.object; if(!inReach(hit.point)) { toast('Za daleko'); return; }
+    const gx = Math.round(obj.position.x - 0.5 + MAP/2); const gz = Math.round(obj.position.z - 0.5 + MAP/2); const key = gx+','+gz;
+    // if water block: pick up water
+    if(blocks[gx+gz*MAP]===3){ player.water++; toast('Nabrałeś wody'); updateUI(); return; }
+    // water crop
+    if(crops[key] && player.water>0){ crops[key].watered=true; player.water--; toast('Podlałeś roślinkę'); updateUI(); return; }
+    // harvest
+    if(crops[key] && crops[key].stage>=4){ delete crops[key]; player.seeds+=2; toast('Zebrano plony: +2 nasiona'); rebuildCrops(); updateUI(); return; }
+    // tilling / turning grass->tilled
+    const idx = gx + gz*MAP; if(blocks[idx]===1){ blocks[idx]=2; rebuildWorld(); toast('Zorano ziemię'); return; }
   }
 
-  // smooth camera follow & head bob
-  let bobTime=0;function updateCamera(dt){bobTime+=dt*6;const headBob=keys['w']||keys['a']||keys['s']||keys['d']?Math.sin(bobTime)*0.05:0;const target=new THREE.Vector3(player.pos.x,player.pos.y+1.5+headBob,player.pos.z);camera.position.lerp(target,0.15);camera.rotation.order='YXZ';camera.rotation.y=player.yaw;camera.rotation.x=player.pitch;}
+  function plantAction(){ const hit=getCenterHit(); if(!hit) return; const obj=hit.object; if(!inReach(hit.point)) { toast('Za daleko'); return; }
+    const gx = Math.round(obj.position.x - 0.5 + MAP/2); const gz = Math.round(obj.position.z - 0.5 + MAP/2); const key = gx+','+gz; const idx = gx + gz*MAP;
+    // plant seed if tilled
+    if(blocks[idx]===2 && player.seeds>0 && !crops[key]){ crops[key]={stage:0,watered:false,ticks:0}; player.seeds--; rebuildCrops(); updateUI(); toast('Posadzono nasionko'); return; }
+    // remove crop
+    if(crops[key]){ delete crops[key]; rebuildCrops(); toast('Usunięto roślinę'); return; }
+  }
 
-  const uiSeeds=document.getElementById('ui-seeds');const uiWater=document.getElementById('ui-water');const uiStam=document.getElementById('ui-stamina');
-  function updateUI(){uiSeeds.textContent=player.seeds;uiWater.textContent=player.water;uiStam.textContent=Math.round(player.stamina);}
+  // growth loop
+  setInterval(()=>{ for(const k in crops){ const c=crops[k]; if(c.watered){ c.ticks++; if(c.ticks>=3){ c.ticks=0; c.stage++; if(c.stage>4) c.stage=4 } c.watered=false } } rebuildCrops(); }, 2500);
 
-  let prev=performance.now();function loop(){const now=performance.now();const dt=(now-prev)/1000;prev=now;updateMovement(dt);updateCamera(dt);renderer.render(scene,camera);requestAnimationFrame(loop);}loop();
+  // simple particle for feedback (tiny floating sprites)
+  const particles=new THREE.Group(); scene.add(particles);
+  function spawnParticlesAt(pos,color,count=6){ for(let i=0;i<count;i++){ const s=new THREE.Mesh(new THREE.SphereGeometry(0.03,6,6), new THREE.MeshBasicMaterial({color})); s.position.copy(pos); s.userData.vel=new THREE.Vector3((Math.random()-0.5)*0.6,Math.random()*0.5+0.1,(Math.random()-0.5)*0.6); particles.add(s);} }
+
+  // UI bindings
+  const uiSeeds=document.getElementById('ui-seeds'); const uiWater=document.getElementById('ui-water'); const uiStam=document.getElementById('ui-stamina'); const hud=document.getElementById('hud');
+  function updateUI(){ uiSeeds.textContent=player.seeds; uiWater.textContent=player.water; uiStam.textContent=Math.round(player.stamina); hud.innerHTML=`<div>Tool: 🌾 sadź / 💧 podlewaj | Reach: ${REACH.toFixed(1)}</div>` }
+  updateUI();
+
+  // save/load
+  window.addEventListener('keydown', e=>{ if(e.key==='p'){ localStorage.setItem('cozy_save', JSON.stringify({blocks:Array.from(blocks),crops:crops,player:{x:player.pos.x,z:player.pos.z,seeds:player.seeds,water:player.water}})); toast('Zapisano'); } if(e.key==='l'){ const s=localStorage.getItem('cozy_save'); if(s){ const d=JSON.parse(s); for(let i=0;i<blocks.length;i++) blocks[i]=d.blocks[i]; Object.assign(crops,d.crops); player.pos.x=d.player.x; player.pos.z=d.player.z; player.seeds=d.player.seeds; player.water=d.player.water; rebuildWorld(); rebuildCrops(); updateUI(); toast('Wczytano'); } } if(e.key==='r'){ // reset
+    for(let x=0;x<MAP;x++)for(let z=0;z<MAP;z++){blocks[x+z*MAP]=1;if(x>9&&x<13&&z>3&&z<10)blocks[x+z*MAP]=3;if(x>4&&x<12&&z>8&&z<16)blocks[x+z*MAP]=2} for(const k in crops) delete crops[k]; rebuildWorld(); rebuildCrops(); updateUI(); toast('Zresetowano świat'); }});
+
+  // rebuild helpers
+  function rebuildWorld(){ worldGroup.clear(); for(let x=0;x<MAP;x++)for(let z=0;z<MAP;z++){const i=x+z*MAP;const t=blocks[i]; if(!t) continue; const mat = t===1?matGrass: t===2?matDirt: matWater; const m=new THREE.Mesh(cubeGeo,mat); m.position.set(x-MAP/2+0.5,0.5,z-MAP/2+0.5); worldGroup.add(m); }}
+  function rebuildCrops(){ cropGroup.clear(); for(const k in crops){const [gx,gz]=k.split(',').map(Number);const c=crops[k]; const m=new THREE.Mesh(cropGeo,cropMat); m.position.set(gx-MAP/2+0.5, 1.0 + c.stage*0.08, gz-MAP/2+0.5); m.scale.setScalar(0.6 + c.stage*0.12); m.userData.key=k; cropGroup.add(m);} }
+
+  rebuildWorld(); rebuildCrops();
+
+  // animation loop
+  let last=performance.now(); function animate(){ const now=performance.now(); const dt=(now-last)/1000; last=now;
+    // movement
+    const dir=new THREE.Vector3(); if(keys['w'])dir.z-=1; if(keys['s'])dir.z+=1; if(keys['a'])dir.x-=1; if(keys['d'])dir.x+=1; if(dir.lengthSq()>0) dir.normalize();
+    const speed=4; const forward=new THREE.Vector3(Math.sin(player.yaw),0,Math.cos(player.yaw)); const right=new THREE.Vector3().crossVectors(new THREE.Vector3(0,1,0), forward);
+    const move = new THREE.Vector3(); move.addScaledVector(forward, dir.z); move.addScaledVector(right, dir.x); player.pos.addScaledVector(move, speed*dt);
+    // head bob
+    const moving = dir.lengthSq()>0; bob += (moving?dt*8:dt*1); const bobOffset = moving?Math.sin(bob)*0.04:0; const targetPos = new THREE.Vector3(player.pos.x, player.pos.y + 0.0 + bobOffset, player.pos.z);
+    camera.position.lerp(targetPos, 0.16); camera.rotation.order='YXZ'; camera.rotation.y = player.yaw; camera.rotation.x = player.pitch;
+    // update crops to face camera (billboard)
+    cropGroup.children.forEach(m=>{ m.lookAt(new THREE.Vector3(camera.position.x, m.position.y, camera.position.z)); });
+    // particle update
+    particles.children.forEach(p=>{ p.position.addScaledVector(p.userData.vel, dt); p.userData.vel.y -= 1.2*dt; p.scale.multiplyScalar(0.99); }); while(particles.children.length>200) particles.remove(particles.children[0]);
+    // simple ambient day-night
+    const dayT=(Date.now()/1000/10)%1; sun.position.set(Math.sin(dayT*Math.PI*2)*10, Math.cos(dayT*Math.PI*2)*10, 5); sun.intensity = Math.max(0.25, Math.cos(dayT*Math.PI*2)*1.2);
+    renderer.render(scene,camera); requestAnimationFrame(animate); }
+  animate();
+
+  // small guidance toast
+  toast('Kliknij w okno, aby zablokować mysz. Użyj PPM, aby sadzić.');
 })();
 </script>
 </body>
